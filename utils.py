@@ -121,6 +121,7 @@ def mergeImgs(images, size):
 # For version compatibility
 def reduce_sum(input_tensor, axis=None, keepdims=False):
     try:
+        # keepdims=False 表示在进行归约的过程中，允许去掉方括号
         return tf.reduce_sum(input_tensor, axis=axis, keepdims=keepdims)
     except:
         return tf.reduce_sum(input_tensor, axis=axis, keep_dims=keepdims)

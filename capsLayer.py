@@ -16,71 +16,79 @@ epsilon = 1e-9
 
 
 class CapsLayer(object):
-    ''' Capsule layer.
-    Args:
-        input: A 4-D tensor.
-        num_outputs: the number of capsule in this layer.
-        vec_len: integer, the length of the output vector of a capsule.
-        layer_type: string, one of 'FC' or "CONV", the type of this layer,
-            fully connected or convolution, for the future expansion capability
-        with_routing: boolean, this capsule is routing with the
-                      lower-level layer capsule.
-
-    Returns:
-        A 4-D tensor.
-    '''
+    """
+    Capsule layer.
+    Returns: A 4-D tensor.
+    """
     def __init__(self, num_outputs, vec_len, with_routing=True, layer_type='FC'):
+        """
+        :param num_outputs: the number of capsule in this layer.
+        :param vec_len: integer, the length of the output vector of a capsule.
+        :param with_routing: boolean, this capsule is routing with the
+            lower-level layer capsule.
+        :param layer_type: string, one of 'FC' or "CONV", the type of this layer,
+            fully connected or convolution, for the future expansion capability
+        """
         self.num_outputs = num_outputs
         self.vec_len = vec_len
         self.with_routing = with_routing
         self.layer_type = layer_type
 
     def __call__(self, input, kernel_size=None, stride=None):
-        '''
-        The parameters 'kernel_size' and 'stride' will be used while 'layer_type' equal 'CONV'
-        '''
+        """
+        __call__ 的作用是使实例能够像函数一样被调用，同时不影响实例本身的生命周期，
+            不影响一个实例的构造和析构）。但是 __call__ 可以用来改变实例的内部成员的值。
+        :param input: [batch_size, 20, 20, 256], 这是经过了第一层卷积之后的输出，
+            第一层卷积有256个过滤器。
+        :param kernel_size: will be used while 'layer_type' equal 'CONV'
+        :param stride: will be used while 'layer_type' equal 'CONV'
+        :return:
+        """
         if self.layer_type == 'CONV':
             self.kernel_size = kernel_size
             self.stride = stride
 
             if not self.with_routing:
                 # the PrimaryCaps layer, a convolutional layer
-                # input: [batch_size, 20, 20, 256]
+                # 断言：输入格式是否合法？
                 assert input.get_shape() == [cfg.batch_size, 20, 20, 256]
 
                 '''
                 # version 1, computational expensive
                 capsules = []
+                # 向量长度 == 循环做卷积运算的次数，以产生向量。
                 for i in range(self.vec_len):
-                    # each capsule i: [batch_size, 6, 6, 32]
+                    # each capsule i: [batch_size, 6, 6, 32] 这应该是这层计算完成之后的 size
                     with tf.variable_scope('ConvUnit_' + str(i)):
+                        # caps_i 不是第 i 个caps，而是每个 capsule 向量的第 i 个元素
                         caps_i = tf.contrib.layers.conv2d(input, self.num_outputs,
                                                           self.kernel_size, self.stride,
                                                           padding="VALID", activation_fn=None)
+                        # 将所有过滤器产生的输出依次拉成一条线，连一起的。
                         caps_i = tf.reshape(caps_i, shape=(cfg.batch_size, -1, 1, 1))
+                        # append 之后应该就是 vec_len 个一维矩阵了，这里会循环 vec_len 次，就有 vec_len 列。
                         capsules.append(caps_i)
                 assert capsules[0].get_shape() == [cfg.batch_size, 1152, 1, 1]
+                # tf.concat 连接两个矩阵，在第三个维度上连接，即在 列 上连接，最后还是二维矩阵。
                 capsules = tf.concat(capsules, axis=2)
                 '''
 
-                # version 2, equivalent to version 1 but higher computational
-                # efficiency.
+                # version 2, equivalent to version 1 but higher computational efficiency.
                 # NOTE: I can't find out any words from the paper whether the
                 # PrimaryCap convolution does a ReLU activation or not before
                 # squashing function, but experiment show that using ReLU get a
                 # higher test accuracy. So, which one to use will be your choice
+                # 这个方法用两行代码就解决了，而且揭示了本质，666
                 capsules = tf.contrib.layers.conv2d(input, self.num_outputs * self.vec_len,
                                                     self.kernel_size, self.stride, padding="VALID",
                                                     activation_fn=tf.nn.relu)
-                # capsules = tf.contrib.layers.conv2d(input, self.num_outputs * self.vec_len,
-                #                                    self.kernel_size, self.stride,padding="VALID",
-                #                                    activation_fn=None)
                 capsules = tf.reshape(capsules, (cfg.batch_size, -1, self.vec_len, 1))
 
                 # [batch_size, 1152, 8, 1]
+                # Capsule Net 的激活函数，在下面定义了。
                 capsules = squash(capsules)
                 assert capsules.get_shape() == [cfg.batch_size, 1152, 8, 1]
-                return(capsules)
+                return capsules
 
         if self.layer_type == 'FC':
             if self.with_routing:
@@ -95,7 +103,7 @@ class CapsLayer(object):
                     capsules = routing(self.input, b_IJ)
                     capsules = tf.squeeze(capsules, axis=1)
 
-            return(capsules)
+            return capsules
 
 
 def routing(input, b_IJ):
